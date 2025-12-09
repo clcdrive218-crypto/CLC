@@ -450,6 +450,27 @@
             font-style: italic;
         }
         
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid #3498db;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
         @media (max-width: 768px) {
             .dashboard {
                 grid-template-columns: 1fr;
@@ -471,6 +492,11 @@
         
         <div class="cloud-storage-info">
             <p><i class="fas fa-info-circle"></i> All data and bill images are stored in the cloud for free. Access from anywhere!</p>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Loading data...</p>
         </div>
         
         <div class="dashboard">
@@ -685,29 +711,29 @@
             <p>© 2023 CLC Financial Ministry. All rights reserved.</p>
         </footer>
     </div>
-<script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
 
-  // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-  const firebaseConfig = {
-    apiKey: "AIzaSyA0AjbzIX2n1d5HHmjzZZuuczBt1yKEW5E",
-    authDomain: "clc-48a2f.firebaseapp.com",
-    projectId: "clc-48a2f",
-    storageBucket: "clc-48a2f.firebasestorage.app",
-    messagingSenderId: "460483749364",
-    appId: "1:460483749364:web:feef1551accc0af78845a1",
-    measurementId: "G-Q60WLRV83D"
-  };
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-storage.js";
 
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const analytics = getAnalytics(app);
-</script>
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyA0AjbzIX2n1d5HHmjzZZuuczBt1yKEW5E",
+            authDomain: "clc-48a2f.firebaseapp.com",
+            projectId: "clc-48a2f",
+            storageBucket: "clc-48a2f.firebasestorage.app",
+            messagingSenderId: "460483749364",
+            appId: "1:460483749364:web:feef1551accc0af78845a1",
+            measurementId: "G-Q60WLRV83D"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
 
         // Global state
         let bankBalance = 60000;
@@ -738,6 +764,7 @@
         const billModal = document.getElementById('bill-modal');
         const billImage = document.getElementById('bill-image');
         const closeModal = document.getElementById('close-modal');
+        const loadingEl = document.getElementById('loading');
         
         // Format currency
         function formatCurrency(amount) {
@@ -752,6 +779,11 @@
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 3000);
+        }
+        
+        // Show loading indicator
+        function showLoading(show) {
+            loadingEl.style.display = show ? 'block' : 'none';
         }
         
         // Update timestamps
@@ -778,10 +810,10 @@
                     totalBalance,
                     programs,
                     expenses,
-                    lastSaved: firebase.firestore.FieldValue.serverTimestamp()
+                    lastSaved: serverTimestamp()
                 };
                 
-                await db.collection("treasurer").doc("data").set(data);
+                await setDoc(doc(db, "treasurer", "data"), data);
                 showNotification('Data saved to cloud storage!');
             } catch (error) {
                 console.error("Error saving data: ", error);
@@ -791,10 +823,11 @@
         
         // Load data from Firestore
         async function loadData() {
+            showLoading(true);
             try {
-                const doc = await db.collection("treasurer").doc("data").get();
-                if (doc.exists) {
-                    const data = doc.data();
+                const docSnap = await getDoc(doc(db, "treasurer", "data"));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
                     bankBalance = data.bankBalance || 60000;
                     cashBalance = data.cashBalance || 10000;
                     totalBalance = data.totalBalance || 70000;
@@ -812,6 +845,8 @@
             } catch (error) {
                 console.error("Error loading data: ", error);
                 showNotification('Error loading data: ' + error.message, true);
+            } finally {
+                showLoading(false);
             }
         }
         
@@ -837,10 +872,9 @@
             if (!file) return null;
             
             try {
-                const storageRef = storage.ref();
-                const billRef = storageRef.child(`bills/${expenseId}_${file.name}`);
-                await billRef.put(file);
-                const downloadURL = await billRef.getDownloadURL();
+                const billRef = ref(storage, `bills/${expenseId}_${file.name}`);
+                await uploadBytes(billRef, file);
+                const downloadURL = await getDownloadURL(billRef);
                 return downloadURL;
             } catch (error) {
                 console.error("Error uploading bill: ", error);
